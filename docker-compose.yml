@@ -1,0 +1,57 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-enterpriseflow}
+      POSTGRES_USER: ${POSTGRES_USER:-enterpriseflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_local}
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend-java:
+    build: ./backend-java
+    env_file: .env
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-enterpriseflow}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-enterpriseflow}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-change_me_local}
+      JWT_SECRET: ${JWT_SECRET:-replace-this-with-a-long-random-secret-at-least-32-characters}
+      ANALYTICS_BASE_URL: http://analytics-python:8000
+      REDIS_HOST: redis
+    ports: ["8080:8080"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      analytics-python:
+        condition: service_started
+
+  analytics-python:
+    build: ./analytics-python
+    ports: ["8000:8000"]
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8080/api}
+    ports: ["5173:80"]
+    depends_on: [backend-java]
+
+volumes:
+  pgdata:
